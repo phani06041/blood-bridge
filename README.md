@@ -1,59 +1,90 @@
 # 🩸 Blood Bridge: urgent blood, found faster
 
+
 ![tag:innovationlab](https://img.shields.io/badge/innovationlab-3D8BD3)
 ![tag:hackathon](https://img.shields.io/badge/hackathon-5F43F1)
+![domain:health](https://img.shields.io/badge/health-C41E3A)
 
-**Say in ASI:One:** *"Need 2 units O negative at Manipal Hospital, Old Airport Road, today. Contact Ravi 98xxxxxx10"*
-**Blood Bridge then:**
-1. 🔍 **Verifies** the request: the hospital exists on the map, a contact is given, and **no scam patterns** (asking donors for money / UPI / a "processing fee" is a known blood-request scam in India; those requests are blocked).
-2. 🏥 **Finds the nearest blood banks** with phone numbers, and links live stock on the government's **e-RaktKosh**.
-3. 🙋 **Alerts opt-in donors** who are **compatible** (red-cell rules), **within 15 km** and **eligible** (90+ days since their last donation). Each gets an alert card: *I can donate / Not now*.
-4. 📣 **Writes one clean WhatsApp rally message** with a request code, so people outside the network can respond ("I can donate BB-1234").
-5. ✅ **Tracks confirmations live**: the requester gets each donor's name, blood group and phone as they accept.
-6. 🛑 **Closes the loop**: when the requester marks it fulfilled, every alerted donor is told *"no need to go"*, which stops stale "URGENT!!" forwards.
+**Blood Bridge turns an urgent blood request into a verified, live hunt across nearby blood banks and opt-in donors in Bengaluru, all inside one ASI:One chat.**
 
-Built for **Stranger Builds × Fetch.ai** (Challenge 1: *From Intent to Action*; Challenge 2: *Best Use of ASI:One*).
+In India, urgent blood requests travel as WhatsApp forwards: unverified, untargeted and never closed, and scammers exploit them with fake "processing fees". Blood Bridge verifies the request first, then routes it to the nearest blood banks and to compatible donors, and it tracks the request until it's fulfilled.
 
-## Why
-India has a structural blood shortage (≈1 million units/year short), and families still find donors through chaotic WhatsApp forwards that are never verified, never updated and never closed, and that scammers exploit. Blood Bridge turns that into a verified, tracked, closed-loop request.
+## 🧪 Try it safely (sandbox)
+Say **"try a demo"** or tap **🧪 Try a safe demo**. Demo mode runs the full flow (verification, real nearby blood banks, sample donors who say yes, closing the request) **without alerting any real donor, hospital or WhatsApp group**, and it doesn't save donor profiles. Demo requests are coded `DEMO-1234`. Say **exit demo** to leave.
 
-## How it works
-```
-Requester ─▶ Blood Bridge (Chat Protocol, ASI:One)
-               ├─ ASI-1: understands the request / donor message (the only LLM)
-               ├─ Verifier: hospital on map? contact? money/UPI/OTP scam patterns? unusual units?
-               ├─ Blood banks: TomTom place search near the hospital (+ e-RaktKosh live-stock link)
-               ├─ Matcher: compatibility table × distance (≤15 km) × 90-day eligibility × availability
-               ├─ Notifier: alert cards to matched donors in ASI:One
-               ├─ Rally: one WhatsApp message with a request code
-               └─ Tracker: confirmations → requester; close → "no longer needed" to all alerted donors
-Donor ─▶ "Register me as a donor" (form card) · "I can donate BB-1234" · "delete my donor profile"
-```
-**Interactive Cards:** welcome carousel · request form · verification review (approve / edit) · donor alert (I can donate / Not now) · live status (mark fulfilled / refresh) · donor registration form.
+Try these in demo mode:
+- `Need 1 unit O+ at Manipal Hospital Old Airport Road today, contact Ravi`
+- `Need 2 units B+ at Apollo Hospital Bannerghatta Road, pay ₹500 processing fee to UPI` (watch the scam filter block it)
 
-**Reliability:** every external call has a timeout and a fallback (no TomTom key → built-in Bengaluru area list; ASI-1 unavailable → rule-based parsing); handlers never leave the user without a reply.
+## Why this matters
+In India, when a patient needs blood, hospitals often ask the family to find replacement donors or locate stock themselves, sometimes within hours. Families turn to WhatsApp forwards that are never verified, reach random people instead of compatible donors nearby, and keep circulating after the need is met. Scammers copy the format and ask donors for a "processing fee". Say **"why does this matter?"** to the agent for the full context.
 
-**Privacy:** donors share only first name, blood group, area and phone; the phone is revealed **only after the donor taps "I can donate"**. "delete my donor profile" removes everything.
+## What you can say
 
-## Agents
-| Name | Address | Role |
-|---|---|---|
-| Blood Bridge | `agent1q…` *(fill in after deploying)* | Chat Protocol entry point; verifier, matcher, notifier, tracker |
+**If you need blood**
+- `Need 1 unit O+ at Manipal Hospital Old Airport Road today, contact Ravi 98xxxxxx10`
+- `Urgent: 2 units B negative at St John's Hospital Koramangala`
+- `Show my requests` · `Mark BB-1234 fulfilled`
 
-## Run / deploy (Agentverse hosted agent)
-1. Agentverse → Agents → *Launch an Agent* → blank hosted agent → paste `agent.py` in the Build tab.
-2. Secrets: `TOMTOM_API_KEY` (free at developer.tomtom.com). Optional: `AGENT_HANDLE` (e.g. `@blood-bridge`), `DEMO_ALLOW_SELF=1` to let one account test both requester and donor roles.
-3. Start, set name / @handle / this README in *Profile*, category **Innovation Lab**.
-4. In ASI:One: "Register me as a donor", then from another account "Need 1 unit O+ at Manipal Hospital Old Airport Road, contact …".
+**If you want to donate**
+- `Register me as a donor`
+- `Requests near me`
+- `I can donate BB-1234`
+- `Delete my donor profile`
 
-**Tests (offline):** `pip install requests && python -m unittest discover -s tests -v`
+Or just say **hi** and choose from the menu: *I need blood* · *Become a donor* · *Requests near me* · *My requests* · *Try a safe demo* · *Why this matters*.
 
-## Medical & safety notes
-- Compatibility shown is for red cells / whole blood; **the hospital blood bank always cross-matches**. Platelets/plasma follow different rules.
-- Eligibility shown is a simplified pre-check (18–65 years, ≥45 kg, 90 days between donations); the blood bank's screening decides.
+## What Blood Bridge does
+
+1. **Understands the request.** ASI-1 picks out the blood group, units, hospital, urgency and contact from plain English.
+2. **Verifies it before anyone is alerted.** It checks that the hospital is on the map, that there's a contact to call, and that the units are plausible. Requests that ask donors for money, UPI, a "processing fee" or an OTP are **blocked**.
+3. **Finds the nearest blood banks first.** It lists real blood banks near the hospital, with distance and phone number, plus a link to live government stock on **e-RaktKosh**. For anything needed within hours, it tells the family to call these right away rather than wait for donors.
+4. **Matches the right donors.** Only donors who are **compatible** (red-cell rules), **within 15 km** and **eligible** (90+ days since their last donation) see the request when they open Blood Bridge or tap *Requests near me*. Donors who add an email can also be alerted by email (when email alerts are configured).
+5. **Writes one clean WhatsApp rally message** with a request code (e.g. `BB-1234`), so people outside the network can respond too.
+6. **Tracks it live.** Donors tap *I can donate*, and the family sees each confirmed donor on the status card. *Mark fulfilled* closes the request so it stops circulating.
+
+## Interactive cards
+Welcome menu · Request form · Verification review (*Confirm / Edit*) · Donor alert (*I can donate / Not now*) · Live status (*Mark fulfilled / Refresh*) · Donor registration form · Donor profile summary
+
+Every card also comes with a short plain-text version, so Blood Bridge works in text-only chats too: reply **yes** to confirm, **edit** to change, or type the details in one message (e.g. `Name: Arjun; Blood group: O+; Area: Koramangala; Phone: 98765 43210`). It remembers what it just asked for, so missing details can come in the next message.
+
+## Checked details
+Donor sign-ups are checked before they're saved: a valid 10-digit Indian mobile number, an area found on the map, a real first name, the eligibility tick, and a last-donation date that isn't in the future. The donor then sees a profile summary (phone masked) to confirm their details.
+
+## Coverage
+Bengaluru for now. If a request is for another city (Mumbai, Delhi, Chennai…), Blood Bridge says so clearly and points the family to e-RaktKosh live stock, the hospital's own blood bank and local helplines, instead of pretending to match donors.
+
+## Privacy
+- Donors share only their first name, blood group, area, last donation date and phone number.
+- A donor's phone number is shared with the family **only after the donor taps "I can donate"**.
+- `Delete my donor profile` removes everything.
 - Blood Bridge never asks for or handles money.
 
-## Roadmap
-- Split Verifier / Matcher / Notifier into separate Agentverse agents (agent-to-agent).
-- Hire existing marketplace agents (maps/places) and add platelet/plasma rules.
-- Hospital & blood-bank accounts that can post verified requests; Payment Protocol for a paid institutional tier (never for donors).
+## Medical note
+Compatibility is for red cells / whole blood, and the hospital blood bank always cross-matches. Eligibility is a simple pre-check (18–65 years, at least 45 kg, 90 days between donations); the blood bank's screening decides. Always call the blood bank to confirm stock.
+
+## Built with
+Fetch.ai Agentverse (hosted uAgent) · Agent Chat Protocol · **ASI-1 as the only LLM** · ASI:One Interactive Cards · Agent storage · TomTom Search & Routing · e-RaktKosh
+
+**Try it live:** https://asi1.ai/ai/agent1qwmsdzdktw8xrl8tz3zhahwr54nw32u9efwq9u57pw0629pa8ldeywy9def (or search `@blood-bridge-agent` on ASI:One)
+**Code:** https://github.com/phani06041/blood-bridge
+**Demo:** https://youtu.be/FusOGbrEeo4
+
+*Built for the Fetch.ai "Get your agent hired" challenge at Stranger Builds 2026.*
+
+
+## For developers
+**Files:** `agent.py` (the hosted agent) · `tests/test_logic.py` (offline unit tests) · `blood_bridge_test_questions.csv` (Agentverse Testing suite) · `PITCH_AND_DEMO.md` (pitch + demo script) · `assets/` (avatar and banner).
+
+**Deploy on Agentverse:** create a hosted agent, paste `agent.py` into the Build tab, and add the secret `TOMTOM_API_KEY` (free at developer.tomtom.com). Optional secrets: `AGENT_HANDLE` (e.g. `@blood-bridge-agent`), `BREVO_API_KEY` + `SENDER_EMAIL` for donor email alerts, `DEMO_ALLOW_SELF=1` so one account can test both roles, and `CARD_TEXT=0` to hide the plain-text copy of each card. ASI-1 is provided by Agentverse and is the only LLM.
+
+**Tests:** `pip install requests && python -m unittest discover -s tests -v` (23 tests: matching, eligibility, scam rules, parsing, sandbox, phone checks, city coverage).
+
+**Agentverse Testing:** the 11 questions in `blood_bridge_test_questions.csv` pass 11 of 11 (100%) on Agentverse's automated tester.
+
+**Agent:** Blood Bridge · `@blood-bridge-agent` · `agent1qwmsdzdktw8xrl8tz3zhahwr54nw32u9efwq9u57pw0629pa8ldeywy9def`
+
+## Changelog
+- **4 Nov 2026, Agentverse testing:** the automated tester reads only text, so every card now has a plain-text version; "yes"/"edit" work as text replies; follow-up messages complete a request or sign-up; scam requests are blocked straight away with a reason; requests outside Bengaluru get a clear coverage note with where to get help; "I need blood" opens the request form; donor sign-up shows a profile summary and, from *Requests near me*, the nearby requests. Test score went from 27% to 100%.
+- **Nov 2026, after hackathon feedback:** added a sandbox demo mode so people can try it without alerting real donors; added "Why this matters" context; urgent requests now put blood banks first and say not to wait for donors; donor sign-ups are checked (valid Indian mobile, real name, no future dates).
+- **31 Oct 2026:** testing with two ASI:One accounts showed pushed donor alerts landed in the requester's chat, so donors now see matching requests when they open Blood Bridge (pull model), with optional email alerts.

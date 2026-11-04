@@ -13,6 +13,7 @@ Blood Bridge 🩸 — turns an urgent blood request into a live, verified hunt, 
                      it's no longer needed, so forwards stop.
 
   Donor: "Register me as a donor" -> form card (blood group, area, last donation, phone, consent)
+  Sandbox: "Try a demo" -> the full flow with sample donors; nothing reaches real donors (feedback, Nov 2026)
 
 Hosted on Agentverse. Secrets: TOMTOM_API_KEY (places + blood banks; optional — falls back to a
 built-in area list). ASI1_API_KEY / ASI1_BASE_URL are provided by Agentverse. ASI-1 is the only LLM.
@@ -247,7 +248,68 @@ def open_requests_for(donor: dict, requests_db: dict, today) -> list[dict]:
 
 def mask_phone(p: str | None) -> str:
     digits = re.sub(r"\D", "", p or "")
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
     return (digits[:2] + "•" * max(0, len(digits) - 4) + digits[-2:]) if len(digits) >= 6 else (p or "")
+
+
+def valid_indian_mobile(p: str | None) -> str | None:
+    """Normalises an Indian mobile number to '+91 XXXXX XXXXX', or None if it isn't one."""
+    digits = re.sub(r"\D", "", p or "")
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = digits[1:]
+    if len(digits) != 10 or digits[0] not in "6789" or len(set(digits)) < 3:
+        return None
+    return f"+91 {digits[:5]} {digits[5:]}"
+
+
+OTHER_CITIES = ["mumbai", "delhi", "new delhi", "chennai", "hyderabad", "pune", "kolkata", "ahmedabad", "jaipur", "lucknow",
+                "kochi", "cochin", "mysuru", "mysore", "mangaluru", "mangalore", "noida", "gurgaon", "gurugram", "thane",
+                "navi mumbai", "coimbatore", "vizag", "visakhapatnam", "bhubaneswar", "indore", "nagpur", "surat", "chandigarh"]
+
+
+def other_city(text: str | None) -> str | None:
+    """Name of a city outside Bengaluru mentioned in the text, if any (Blood Bridge covers Bengaluru for now)."""
+    t = (text or "").lower()
+    for c in OTHER_CITIES:
+        if re.search(rf"\b{re.escape(c)}\b", t):
+            return c.title()
+    return None
+
+
+# --- sandbox (demo) mode: lets anyone try the whole flow without reaching real donors
+DEMO_SAMPLE_TEXT = "Need 1 unit O+ at Manipal Hospital Old Airport Road today, contact Ravi (demo)"
+DEMO_NAMES = ["Asha", "Karthik", "Meera", "Imran", "Divya", "Rahul"]
+
+
+def demo_donors(req: dict, n: int = 3) -> list[dict]:
+    """Sample donors (not real people) compatible with the request, for the sandbox."""
+    groups = COMPATIBLE_DONORS.get(req.get("group"), ["O-"])
+    rnd = random.Random(req.get("code", "x"))
+    start = rnd.randint(0, len(DEMO_NAMES) - 1)
+    out = []
+    for i in range(n):
+        g = req["group"] if i == 0 and req.get("group") in groups else groups[i % len(groups)]
+        out.append({"id": f"demo-{i}", "name": DEMO_NAMES[(start + i) % len(DEMO_NAMES)] + " (sample)",
+                    "group": g, "distance_km": round(1.5 + i * 2.7 + rnd.random(), 1),
+                    "phone": "+91 9•••• ••••0 (sample)"})
+    return out
+
+
+WHY_TEXT = (
+    "**Why Blood Bridge exists** 🩸\n\n"
+    "- In India, when a patient needs blood (surgery, an accident, dengue, cancer care, childbirth), hospitals often "
+    "ask the family to find **replacement donors** or locate stock themselves, sometimes within hours.\n"
+    "- Families post \"URGENT!! O-ve needed\" in WhatsApp groups. Those forwards are **never verified**, reach "
+    "**random people instead of compatible donors nearby**, and keep circulating **long after** the need is met.\n"
+    "- Scammers copy the format and ask donors for a **\"processing fee\" or UPI payment**. Real requests never do.\n"
+    "- India is short of roughly **1 million units** of blood a year (2022 study).\n\n"
+    "Blood Bridge checks the request first, points the family to the **nearest blood banks** (the fastest route), "
+    "shows it only to **compatible, eligible donors within 15 km**, and closes it when it's fulfilled.\n\n"
+    "Want to see it without alerting anyone? Tap **🧪 Try a safe demo**."
+)
 
 
 # ----------------------------------------------------------------------------- live data
@@ -364,14 +426,16 @@ def asi1_client():
 
 INTENT_PROMPT = (
     "You route messages for Blood Bridge, a blood-donation coordinator in Bengaluru. Reply with ONLY JSON: "
-    '{"intent": one of ["request","register","donate","decline","status","close","delete","nearby","help"], '
+    '{"intent": one of ["request","register","donate","decline","status","close","delete","nearby","demo","exit_demo","why","help"], '
     '"group": blood group like "O-" or null, "units": integer or null, "hospital": string or null, '
     '"urgency": "today"|"within hours"|"tomorrow"|null, "contact": name and/or phone string or null, '
-    '"code": request code like "BB-1234" or null, "area": donor area/pincode or null, '
+    '"code": request code like "BB-1234" or "DEMO-1234" or null, "area": donor area/pincode or null, '
     '"last_donated": date text or null, "name": donor name or null, "phone": phone or null}. '
     '"request" = someone needs blood; "register" = wants to become a donor; "donate" = offers to donate for a code; '
     '"decline" = cannot donate; "status" = asks about a request; "close" = request fulfilled/cancel; '
-    '"delete" = remove my donor profile; "nearby" = a donor asks which requests near them need help.'
+    '"delete" = remove my donor profile; "nearby" = a donor asks which requests near them need help; '
+    '"demo" = wants to try/test/sandbox the agent safely; "exit_demo" = leave demo/sandbox mode; '
+    '"why" = asks why this matters, the context, or how blood requests work in India.'
 )
 
 
@@ -395,12 +459,18 @@ def understand(text: str) -> dict:
 
 def rule_understand(text: str) -> dict:
     t = text.lower()
-    code = re.search(r"\bBB-\d{4}\b", text, re.I)
+    code = re.search(r"\b(?:BB|DEMO)-\d{4}\b", text, re.I)
     code = code.group(0).upper() if code else None
     out = {"intent": "help", "group": find_group_in_text(text), "units": None, "hospital": None,
            "urgency": None, "contact": None, "code": code, "area": None, "last_donated": None,
            "name": None, "phone": None}
-    if re.search(r"\b(delete|remove)\b.*\b(profile|me|donor)\b", t):
+    if re.search(r"\b(exit|leave|stop|end)\b.*\b(demo|sandbox|test)\b|\bdemo off\b", t):
+        out["intent"] = "exit_demo"
+    elif re.search(r"\b(demo|sandbox|test it|testing|try it|try a demo)\b", t) and not code:
+        out["intent"] = "demo"
+    elif re.search(r"\b(why|context|explain|how does this work|what is this)\b", t) and not out["group"]:
+        out["intent"] = "why"
+    elif re.search(r"\b(delete|remove)\b.*\b(profile|me|donor)\b", t):
         out["intent"] = "delete"
     elif code and re.search(r"\b(can donate|i can|i'll donate|yes|available)\b", t):
         out["intent"] = "donate"
@@ -416,10 +486,24 @@ def rule_understand(text: str) -> dict:
         out["intent"] = "register"
     elif re.search(r"\b(need|needed|require|urgent|blood for)\b", t) and out["group"]:
         out["intent"] = "request"
+    elif out["group"] and out["hospital"]:
+        out["intent"] = "request"
+    elif re.search(r"\b(i need|we need|need|looking for|require|urgent(ly)?)\b.*\bblood\b|\bblood\b.*\b(needed|required|urgent)\b|\brequest blood\b", t):
+        out["intent"] = "start_request"
+    if re.search(r"\b(within (an |a few )?hours?|asap|immediately|right now|emergency)\b", t):
+        out["urgency"] = "within hours"
+    elif re.search(r"\btoday|tonight\b", t):
+        out["urgency"] = "today"
+    elif re.search(r"\btomorrow\b", t):
+        out["urgency"] = "tomorrow"
     u = re.search(r"(\d+)\s*(unit|bottle|pint)s?", t)
+    if not u:
+        u = re.search(r"\bunits?(?:\s+needed)?\s*[:=-]\s*(\d+)", t)
     out["units"] = int(u.group(1)) if u else None
-    h = re.search(r"\b(?:at|in)\s+([A-Z][\w .&'-]*?(?:hospital|clinic|medical|centre|center|institute|health)[\w .'-]*)", text, re.I)
-    out["hospital"] = re.split(r"\b(?:call|contact|attendant|today|urgent|tomorrow|asap)\b", h.group(1), flags=re.I)[0].strip(" ,.-") if h else None
+    h = re.search(r"\b(?:at|in)\s+([A-Z][\w .&'-]*?(?:hospital|clinic|medical|centre|center|institute|health)[\w .,'-]*)", text, re.I)
+    if not h:
+        h = re.search(r"\bhospital(?:\s+name)?(?:\s*(?:and|&|\+)\s*area)?\s*[:=-]\s*([^;\n]+?)(?:\.\s|[;\n]|\.?$)", text, re.I)
+    out["hospital"] = re.split(r"\b(?:call|contact|attendant|today|tonight|urgent|urgently|tomorrow|asap|pay|send|transfer|please|for)\b", h.group(1), flags=re.I)[0].strip(" ,.-") if h else None
     p = re.search(r"\+?\d[\d\s-]{6,14}\d", text)
     if p:
         out["phone"] = p.group(0).strip()
@@ -447,6 +531,7 @@ DONOR_FORM = {
         {"name": "consent", "kind": "checkbox", "label": "I'm 18–65, at least 45 kg, and agree to be alerted for nearby requests", "required": True},
     ],
     "submit_cta": {"label": "Register me", "selection": {"action": "register"}},
+    "example": "Name: Arjun; Blood group: O+; Area: Koramangala; Last donated: never; Phone: 98765 43210",
 }
 
 REQUEST_FORM = {
@@ -461,6 +546,7 @@ REQUEST_FORM = {
         {"name": "contact", "kind": "text", "label": "Attendant name + phone", "required": True},
     ],
     "submit_cta": {"label": "Review request", "selection": {"action": "review_request"}},
+    "example": "Need 1 unit O+ at Manipal Hospital Old Airport Road today, contact Ravi 98765 43210",
 }
 
 
@@ -471,17 +557,21 @@ def welcome_card():
             "items": [item("req", "🩸 I need blood", "Verify, find blood banks, alert donors", "start_request"),
                       item("don", "🙋 Become a donor", "Get alerts for nearby requests", "start_register"),
                       item("near", "🔔 Requests near me", "Open requests you can help with", "nearby"),
-                      item("mine", "📋 My requests", "Live status of your requests", "my_requests")]}
+                      item("mine", "📋 My requests", "Live status of your requests", "my_requests"),
+                      item("demo", "🧪 Try a safe demo", "See the full flow; no real donors are alerted", "demo"),
+                      item("why", "❓ Why this matters", "How blood requests work in India today", "why")]}
 
 
-def review_card(req, level, notes):
+def review_card(req, level, notes, demo=False):
     badge = {"ok": "✅ Looks genuine", "check": "🟡 Needs a quick check", "suspicious": "🚩 Possible scam"}[level]
     rows = [{"label": "Blood group", "value": req["group"]}, {"label": "Units", "value": str(req["units"])},
-            {"label": "Hospital", "value": req["hospital"]}, {"label": "Needed", "value": req.get("urgency") or "urgent"},
+            {"label": "Hospital", "value": req.get("hospital_label") or req["hospital"]}, {"label": "Needed", "value": req.get("urgency") or "urgent"},
             {"label": "Contact", "value": req.get("contact") or "—"}, {"label": "Verification", "value": badge}]
     rows += [{"label": "•", "value": n} for n in notes]
-    return {"title": "Check before we alert donors", "summary_rows": rows,
-            "approve_cta": {"label": "Alert donors now", "selection": {"action": "confirm_request"}, "primary": True},
+    if demo:
+        rows.insert(0, {"label": "Mode", "value": "🧪 DEMO: no real donors will be alerted"})
+    return {"title": "🧪 Demo: check before we alert donors" if demo else "Check before we alert donors", "summary_rows": rows,
+            "approve_cta": {"label": "Run the demo" if demo else "Alert donors now", "selection": {"action": "confirm_request"}, "primary": True},
             "reject_cta": {"label": "Edit", "selection": {"action": "start_request"}}}
 
 
@@ -497,7 +587,9 @@ def donor_alert_card(req, donor):
 
 
 def status_card(req, donors):
-    rows = [{"label": "Status", "value": "🟢 Open" if req["status"] == "open" else "✅ Closed"},
+    if req.get("demo"):
+        donors = {d["id"]: d for d in req.get("demo_donors", [])}
+    rows = [{"label": "Status", "value": ("🧪 Demo · " if req.get("demo") else "") + ("🟢 Open" if req["status"] == "open" else "✅ Closed")},
             {"label": "Need", "value": f"{req['units']} × {req['group']} at {req['hospital']}"},
             {"label": "Donors alerted", "value": str(len(req.get("notified", [])))},
             {"label": "Confirmed", "value": f"{len(req.get('confirmed', []))} of {req['units']}"}]
@@ -510,6 +602,27 @@ def status_card(req, donors):
         ctas.insert(0, {"label": "Mark fulfilled", "selection": {"action": "close", "code": req["code"]}, "primary": True})
     return {"title": f"Request {req['code']}", "summary_rows": rows, "ctas": ctas}
 
+
+def card_text(kind: str, p: dict) -> str:
+    """A short plain-text version of a card, for clients that show only text."""
+    lines = [f"**{p.get('title', '')}**"] if p.get("title") else []
+    if kind == "carousel":
+        lines += [f"- {i['title']}: {i.get('subtitle', '')}" for i in p.get("items", [])]
+        lines.append("Tap an option, or just type what you need.")
+    elif kind == "form":
+        lines.append("Fields: " + ", ".join(f["label"] + ("" if f.get("required") or "optional" in f["label"].lower() else " (optional)")
+                                            for f in p.get("fields", [])) + ".")
+        lines.append("Fill in the form, or reply in one message" + (f", e.g. *{p['example']}*" if p.get("example") else " with these details") + ".")
+    else:
+        lines += [f"- {r['label']}: {r['value']}" if r["label"] != "•" else f"- {r['value']}" for r in p.get("summary_rows", [])]
+        if p.get("approve_cta"):
+            lines.append(f"Reply **yes** to {p['approve_cta']['label'].lower()}, or **edit** to change it.")
+        elif p.get("ctas"):
+            lines.append("Options: " + " · ".join(c["label"] for c in p["ctas"]))
+    return "\n".join(lines)
+
+
+YES_RE = r"(yes|yep|yeah|ok|okay|confirm|proceed|go ahead|alert( donors)?( now)?|run( the)? demo|send it|do it)\b"
 
 # ----------------------------------------------------------------------------- card answers
 
@@ -559,25 +672,79 @@ if HAVE_UAGENTS:
             "card_payload": json.dumps(payload, ensure_ascii=False), "card_id": str(uuid4())})
 
     def msg(*blocks):
-        content = [TextContent(type="text", text=b) if isinstance(b, str) else b for b in blocks]
+        texts, cards = [], []
+        for b in blocks:
+            if isinstance(b, str):
+                texts.append(b)
+            else:
+                cards.append(b)
+                md = getattr(b, "metadata", {}) or {}
+                if md.get("card_payload") and os.environ.get("CARD_TEXT", "1") != "0":
+                    try:
+                        texts.append(card_text(md.get("card_kind", ""), json.loads(md["card_payload"])))
+                    except Exception:
+                        pass
+        content = [TextContent(type="text", text="\n\n".join(t for t in texts if t))] + cards
         return ChatMessage(timestamp=datetime.utcnow(), msg_id=uuid4(), content=content)
 
     def load(ctx, key, default):
         v = ctx.storage.get(key)
         return v if v is not None else default
 
-    async def handle_request_review(ctx, sender, req):
+    def in_demo(ctx, sender) -> bool:
+        return bool(ctx.storage.get(f"sandbox:{sender}"))
+
+    def db_key(code: str | None) -> str:
+        return "demo_requests" if (code or "").upper().startswith("DEMO-") else "requests"
+
+    async def start_demo(ctx, sender):
+        ctx.storage.set(f"sandbox:{sender}", True)
+        intro = (
+            "🧪 **Demo mode is on.** Try Blood Bridge safely: nothing you do here reaches real donors, hospitals "
+            "or WhatsApp, and donor profiles aren't saved. The blood banks shown are real, so you can see the live data.\n\n"
+            f"I'll run a sample request now:\n> {DEMO_SAMPLE_TEXT}\n\n"
+            "After that, type your own request (any blood group and Bengaluru hospital), or test the scam filter with:\n"
+            "> Need 2 units B+ at Apollo Hospital Bannerghatta Road, pay ₹500 processing fee to UPI\n\n"
+            "Say **exit demo** anytime.")
+        sample = rule_understand(DEMO_SAMPLE_TEXT)
+        await handle_request_review(ctx, sender, {"group": sample["group"], "units": sample["units"] or 1,
+                                                  "hospital": sample["hospital"], "urgency": "today",
+                                                  "contact": "Ravi (demo)", "raw": DEMO_SAMPLE_TEXT}, intro)
+
+    async def handle_request_review(ctx, sender, req, intro: str = ""):
         geo = Geo(os.environ.get("TOMTOM_API_KEY"))
         place = await asyncio.to_thread(geo.find_hospital, req["hospital"])
         req["lat"], req["lon"] = (place["lat"], place["lon"]) if place else (None, None)
         level, notes = verify_request(req, bool(place))
-        if not place:
-            await ctx.send(sender, msg(f"I couldn't find **{req['hospital']}** on the map. Please add the area "
-                                       "(e.g. 'Manipal Hospital, Old Airport Road').", card_block("form", REQUEST_FORM)))
+        city = other_city(req.get("hospital")) or other_city(req.get("raw"))
+        if not place and city:
+            ctx.storage.set(f"partial:{sender}", None)
+            await ctx.send(sender, msg(intro, f"📍 **Blood Bridge covers Bengaluru for now**, so I can't match donors or blood banks in {city} yet. "
+                                       f"Fastest options there:\n- Check live blood stock in {city} on [e-RaktKosh]({ERAKTKOSH_URL}) "
+                                       "(choose the state and district)\n- Call the hospital's own blood bank; they can also arrange "
+                                       "replacement donors\n- Call 104 (health helpline) in many states, or the Red Cross blood bank in the city\n\n"
+                                       "If the patient is in Bengaluru, send the hospital name and area and I'll check it."))
             return
-        req["hospital_label"] = place["label"]
+        if not place:
+            ctx.storage.set(f"partial:{sender}", {**req, "hospital": None})
+            await ctx.send(sender, msg(intro, f"I couldn't find **{req['hospital']}** on the map. Which hospital is it? "
+                                       "Please add the area (e.g. 'Manipal Hospital, Old Airport Road').", card_block("form", REQUEST_FORM)))
+            return
+        label = place["label"]
+        extra = [w for w in re.findall(r"[A-Za-z]{4,}", req["hospital"] or "")
+                 if w.lower() not in label.lower() and w.lower() not in ("hospital", "hospitals", "road", "bengaluru", "bangalore", "today", "urgent")]
+        req["hospital_label"] = label + (", " + " ".join(dict.fromkeys(extra)) if extra else "")
         ctx.storage.set(f"draft:{sender}", {**req, "level": level, "notes": notes})
-        await ctx.send(sender, msg("🔍 I checked the request before alerting anyone:", card_block("review", review_card(req, level, notes))))
+        ctx.storage.set(f"partial:{sender}", None)
+        demo = in_demo(ctx, sender)
+        if level == "suspicious":
+            ctx.storage.set(f"draft:{sender}", None)
+            await ctx.send(sender, msg(intro, ("🧪 Demo · " if demo else "") + "🚩 **This looks like a known blood-request scam**, so "
+                                       "I won't alert any donors. It " + " and ".join(n[2:].split(":")[0].strip() for n in notes if n.startswith("⚠️")) +
+                                       ". Real blood requests never ask donors for money. If it's genuine, send it again without any payment details."))
+            return
+        await ctx.send(sender, msg(intro, ("🧪 Demo · " if demo else "") + "🔍 I checked the request before alerting anyone:",
+                                   card_block("review", review_card(req, level, notes, demo))))
 
     async def confirm_request(ctx, sender):
         draft = ctx.storage.get(f"draft:{sender}")
@@ -588,43 +755,70 @@ if HAVE_UAGENTS:
             await ctx.send(sender, msg("🚩 This request looks like a known scam pattern (money/UPI). I won't alert donors. "
                                        "If it's genuine, remove any payment details and try again."))
             return
-        requests_db = load(ctx, "requests", {})
-        donors = load(ctx, "donors", {})
+        demo = in_demo(ctx, sender)
+        store = "demo_requests" if demo else "requests"
+        requests_db = load(ctx, store, {})
+        donors = {} if demo else load(ctx, "donors", {})
         code = new_code(requests_db)
+        if demo:
+            code = code.replace("BB-", "DEMO-")
         req = {**{k: draft[k] for k in ("group", "units", "hospital", "urgency", "contact", "lat", "lon")},
                "hospital": draft.get("hospital_label") or draft["hospital"], "code": code, "requester": sender,
                "status": "open", "created": now_ist().isoformat(), "notified": [], "confirmed": [], "declined": []}
         geo = Geo(os.environ.get("TOMTOM_API_KEY"))
         banks = await asyncio.to_thread(geo.blood_banks, req["lat"], req["lon"])
-        matches = match_donors(req, donors, now_ist().date(), allow_self=os.environ.get("DEMO_ALLOW_SELF") == "1")
         emailed = 0
-        for d in matches:
-            req["notified"].append(d["id"])
-            if d.get("email") and await asyncio.to_thread(send_email_alert, d, req, HANDLE):
-                emailed += 1
+        if demo:
+            sample = demo_donors(req)
+            req.update(demo=True, demo_donors=sample, notified=[d["id"] for d in sample], confirmed=[sample[0]["id"]])
+            matches = [{**d, "exact_match": d["group"] == req["group"]} for d in sample]
+        else:
+            matches = match_donors(req, donors, now_ist().date(), allow_self=os.environ.get("DEMO_ALLOW_SELF") == "1")
+            for d in matches:
+                req["notified"].append(d["id"])
+                if d.get("email") and await asyncio.to_thread(send_email_alert, d, req, HANDLE):
+                    emailed += 1
         requests_db[code] = req
-        ctx.storage.set("requests", requests_db)
+        ctx.storage.set(store, requests_db)
         mine = load(ctx, f"mine:{sender}", [])
         ctx.storage.set(f"mine:{sender}", mine + [code])
         ctx.storage.set(f"draft:{sender}", None)
 
-        lines = [f"✅ **Request {code} is live.** Here's what I did:"]
-        exact = sum(1 for d in matches if d["exact_match"])
-        lines.append(f"🙋 **Donors**: **{len(matches)}** registered compatible donor(s) within {DONOR_RADIUS_KM} km "
-                     f"({exact} exact {req['group']} match) will see this request the moment they open Blood Bridge"
-                     + (f"; **{emailed}** emailed now" if emailed else "") if matches else
-                     "🙋 **Donors**: no registered donors match nearby yet — the rally message below reaches people who aren't registered.")
+        if demo:
+            lines = [f"🧪 **Demo request {code} is ready.** Nothing was sent to real donors, hospitals or WhatsApp; "
+                     "the donors below are samples. The blood banks are real."]
+        else:
+            lines = [f"✅ **Request {code} is live.** Here's what I did:"]
         if banks:
-            lines.append("🏥 **Nearest blood banks** (call to confirm stock):")
+            lines.append("🏥 **Nearest blood banks: call these first, they're the fastest route:**")
             lines += [f"- {b['name']} — {b['km']} km" + (f" · 📞 {b['phone']}" if b.get("phone") else "") for b in banks]
         lines.append(f"📊 **Live stock** by blood bank: [e-RaktKosh]({ERAKTKOSH_URL})")
-        lines.append(f"📣 **Rally**: [share one clean request on WhatsApp]({whatsapp_link(rally_text(req, HANDLE))}) — "
-                     f"people can reply to {HANDLE} with \"I can donate {code}\".")
-        lines.append("I'll update you here as donors confirm.")
+        exact = sum(1 for d in matches if d["exact_match"])
+        if demo:
+            lines.append(f"🙋 **Donors**: in a real request, compatible donors within {DONOR_RADIUS_KM} km see it in ASI:One. "
+                         f"Here {len(matches)} sample donors matched ({exact} exact {req['group']}), and "
+                         f"**{matches[0]['name']}** has already tapped *I can donate*, so the status card shows the family's view.")
+            lines.append("📣 **Rally**: a real request also gets a one-tap WhatsApp message; it's skipped in the demo so nothing fake gets shared.")
+            lines.append("Next: tap **Mark fulfilled** to close it, type your own request, or say **exit demo**.")
+        else:
+            lines.append(f"🙋 **Donors**: **{len(matches)}** compatible donor(s) within {DONOR_RADIUS_KM} km "
+                         f"({exact} exact {req['group']} match) see this as soon as they open Blood Bridge"
+                         + (f"; **{emailed}** alerted by email right now" if emailed else "") if matches else
+                         "🙋 **Donors**: no registered donors match nearby yet; the rally message below reaches people who aren't registered.")
+            if (req.get("urgency") or "urgent") in ("within hours", "today", "urgent"):
+                lines.append("⏱️ **Needed within hours?** Don't wait for donors: call the blood banks above now, "
+                             "and share the rally message below.")
+            lines.append(f"📣 **Rally**: [share one clean request on WhatsApp]({whatsapp_link(rally_text(req, HANDLE))}) — "
+                         f"people can reply to {HANDLE} with \"I can donate {code}\".")
+            lines.append("Tap **Refresh** on the card below to see donors as they confirm.")
         await ctx.send(sender, msg("\n\n".join(lines).replace(":**\n\n- ", ":**\n- ").replace("\n\n- ", "\n- "),
                                    card_block("detail", status_card(req, donors))))
 
     async def donor_response(ctx, sender, code, accept: bool):
+        if db_key(code) == "demo_requests":
+            await ctx.send(sender, msg(f"🧪 {code} is a demo request; there's no real patient. In a real one, tapping "
+                                       "*I can donate* gives you the hospital and the attendant's contact."))
+            return
         requests_db = load(ctx, "requests", {})
         donors = load(ctx, "donors", {})
         req = requests_db.get((code or "").upper())
@@ -655,14 +849,46 @@ if HAVE_UAGENTS:
         # The requester sees the confirmation (name, group, phone) on their status card's Refresh.
 
     async def register_donor(ctx, sender, data, code=None):
+        if not any(data.get(k) for k in ("name", "area", "phone")):
+            ctx.storage.set(f"donorform:{sender}", True)
+            await ctx.send(sender, msg("Thank you for stepping up 💛 Fill this in (your number stays hidden until you say yes):",
+                                       card_block("form", DONOR_FORM)))
+            return
         geo = Geo(os.environ.get("TOMTOM_API_KEY"))
         group = normalize_group(data.get("group"))
         place = await asyncio.to_thread(geo.find, data.get("area"), False)
-        missing = [n for n, ok in (("blood group", group), ("area", place), ("phone", data.get("phone")), ("name", data.get("name"))) if not ok]
-        if missing:
-            await ctx.send(sender, msg(f"Almost there — I still need: {', '.join(missing)}.", card_block("form", DONOR_FORM)))
-            return
+        phone = valid_indian_mobile(data.get("phone"))
+        name_ok = bool(re.fullmatch(r"[A-Za-z][A-Za-z .'-]{1,29}", str(data.get("name") or "").strip()))
+        missing = [n for n, ok in (("your blood group", group), ("an area in Bengaluru I can find on the map", place),
+                                   ("a valid 10-digit Indian mobile number", phone), ("your first name (letters only)", name_ok),
+                                   ("the eligibility tick (18–65, at least 45 kg)", str(data.get("consent", "true")).lower() not in ("false", "0", "no")))
+                   if not ok]
         last = parse_date(data.get("last_donated"))
+        if last and last > now_ist().date():
+            missing.append("a last-donation date that isn't in the future")
+        if missing:
+            ctx.storage.set(f"donorform:{sender}", {k: v for k, v in data.items() if k in ("name", "group", "area", "last_donated", "phone", "email", "_then") and v})
+            await ctx.send(sender, msg("Almost there. Please check: " + "; ".join(missing) + ".", card_block("form", DONOR_FORM)))
+            return
+        summary = {"title": "Your donor profile", "summary_rows": [
+            {"label": "Name", "value": str(data["name"]).strip()[:30]}, {"label": "Blood group", "value": group},
+            {"label": "Area", "value": str(data["area"]).strip()[:40]},
+            {"label": "Last donated", "value": last.isoformat() if last else "never / not given"},
+            {"label": "Phone", "value": f"{mask_phone(phone)} (hidden until you tap I can donate)"},
+            {"label": "Eligibility", "value": "✅ 18–65, at least 45 kg, agreed to alerts"},
+            {"label": "Can donate now", "value": "✅ yes" if is_eligible({"last_donated": last.isoformat() if last else None}, now_ist().date())
+                                                   else f"after {MIN_DAYS_BETWEEN_DONATIONS} days from last donation"}]}
+        if in_demo(ctx, sender):
+            ctx.storage.set(f"donorform:{sender}", None)
+            then = (f"\n\n🔔 **Requests near {summary['summary_rows'][2]['value']}:** a real donor would now see open, compatible "
+                    "requests within 15 km here. Demo profiles aren't matched to real patients, so there's nothing to show."
+                    if data.get("_then") == "nearby" else "")
+            await ctx.send(sender, msg("🧪 Demo: your sign-up checks out. This is the profile Blood Bridge would save; in demo "
+                                       "mode nothing is stored. Say **exit demo** and register again to become a real donor." + then,
+                                       card_block("detail", summary)))
+            return
+        data = {**data, "phone": phone}
+        ctx.storage.set(f"donorform:{sender}", None)
         donors = load(ctx, "donors", {})
         donors[sender] = {"id": sender, "sender": sender, "name": str(data["name"]).strip()[:30], "group": group,
                           "area": str(data["area"]).strip()[:40], "lat": place["lat"], "lon": place["lon"],
@@ -674,15 +900,19 @@ if HAVE_UAGENTS:
         note = "" if eligible else f" You can donate again after {MIN_DAYS_BETWEEN_DONATIONS} days from your last donation; I'll only alert you after that."
         await ctx.send(sender, msg(f"🎉 You're registered, {donors[sender]['name']} ({group}, {donors[sender]['area']}). "
                                    f"I'll alert you only for compatible requests within {DONOR_RADIUS_KM} km.{note}\n"
-                                   f"Your number stays hidden until you tap **I can donate**. Say \"delete my donor profile\" anytime."))
+                                   f"Your number stays hidden until you tap **I can donate**. Say \"delete my donor profile\" anytime.",
+                                   card_block("detail", summary)))
         if code:
             await donor_response(ctx, sender, code, True)
+        elif data.get("_then") == "nearby":
+            await show_nearby(ctx, sender, explicit=True)
 
     async def show_nearby(ctx, sender, explicit=False):
         donors = load(ctx, "donors", {})
         me = donors.get(sender)
         if not me:
             if explicit:
+                ctx.storage.set(f"donorform:{sender}", {"_then": "nearby"})
                 await ctx.send(sender, msg("Register as a donor first, then I'll show requests you can help with:",
                                            card_block("form", DONOR_FORM)))
             return False
@@ -708,15 +938,52 @@ if HAVE_UAGENTS:
             if not action and (not text or re.fullmatch(r"(hi|hello|hey|hii+)[!. ]*", text.lower())):
                 if await show_nearby(ctx, sender):
                     return
+                demo_note = "\n\n🧪 You're in **demo mode**; say **exit demo** to use it for real." if in_demo(ctx, sender) else ""
                 await ctx.send(sender, msg("Hi! I'm **Blood Bridge** 🩸 — I turn an urgent blood request into a verified, "
-                                           "live hunt across blood banks and nearby donors.", card_block("carousel", welcome_card())))
+                                           "live hunt across blood banks and nearby donors in Bengaluru. New here? Tap "
+                                           "**🧪 Try a safe demo**: nothing reaches real donors." + demo_note,
+                                           card_block("carousel", welcome_card())))
                 return
+            if not action and ctx.storage.get(f"draft:{sender}") and re.match(YES_RE, text.lower()):
+                action = "confirm_request"
+            if not action and re.fullmatch(r"(edit|change( it)?|no)[.! ]*", text.lower()) and ctx.storage.get(f"draft:{sender}"):
+                action = "start_request"
+            dform = ctx.storage.get(f"donorform:{sender}") if not action else None
+            if dform:
+                t2 = re.sub(r"(?i)\blast\s*donat\w*", "last_donated", re.sub(r"(?i)\b(?:mobile(?:\s*number)?|phone\s*number)\b", "phone",
+                            re.sub(r"(?i)\b(?:first\s*)?name\b", "name", re.sub(r"(?i)\bblood\s*group\b", "group",
+                            re.sub(r"(?i)\b(?:area|pincode|locality)\b", "area", text)))))
+                f = {k: v for k, v in read_selection(t2, []).items() if k in ("name", "group", "area", "last_donated", "phone")}
+                if len(f) >= 2 or valid_indian_mobile(text):
+                    sel = {**(dform if isinstance(dform, dict) else {}), **f, **sel}
+                    if "phone" not in f and valid_indian_mobile(text):
+                        sel["phone"] = text
+                    action = "register"
+            partial = ctx.storage.get(f"partial:{sender}") if not action else None
+            if partial:
+                r = rule_understand(text)
+                u = await asyncio.to_thread(understand, text)
+                if u.get("intent") in (None, "help", "request") and (r.get("hospital") or u.get("hospital") or r.get("group") or u.get("group")):
+                    sel = {**{k: v for k, v in partial.items() if v}, **{k: v for k, v in r.items() if v},
+                           **{k: v for k, v in u.items() if v and k in ("group", "units", "hospital", "urgency", "contact")}, **sel}
+                    action = "review_request"
             if not action:
                 u = await asyncio.to_thread(understand, text)
                 action = {"request": "review_request", "register": "register", "donate": "donate", "decline": "decline",
-                          "status": "status", "close": "close", "delete": "delete", "nearby": "nearby"}.get(u.get("intent"), "help")
+                          "status": "status", "close": "close", "delete": "delete", "nearby": "nearby",
+                          "demo": "demo", "exit_demo": "exit_demo", "why": "why", "start_request": "start_request"}.get(u.get("intent"), "help")
+                if action == "help" and rule_understand(text).get("intent") == "start_request":
+                    action = "start_request"
                 sel = {**{k: v for k, v in u.items() if v}, **sel}
-            if action == "start_request":
+            if action == "demo":
+                await start_demo(ctx, sender)
+            elif action == "exit_demo":
+                ctx.storage.set(f"sandbox:{sender}", None)
+                await ctx.send(sender, msg("Demo mode is off. Requests you make now are real and go to real donors.",
+                                           card_block("carousel", welcome_card())))
+            elif action == "why":
+                await ctx.send(sender, msg(WHY_TEXT, card_block("carousel", welcome_card())))
+            elif action == "start_request":
                 await ctx.send(sender, msg("Tell me what's needed:", card_block("form", REQUEST_FORM)))
             elif action == "start_register":
                 await ctx.send(sender, msg("Thank you for stepping up 💛", card_block("form", DONOR_FORM)))
@@ -724,10 +991,16 @@ if HAVE_UAGENTS:
                 if not (sel.get("contact") or sel.get("phone")):
                     sel["contact"] = rule_understand(text).get("contact")
                 req = {"group": normalize_group(sel.get("group")), "units": int(re.sub(r"\D", "", str(sel.get("units") or "1")) or 1),
-                       "hospital": sel.get("hospital"), "urgency": sel.get("urgency"), "contact": sel.get("contact") or sel.get("phone"),
+                       "hospital": (str(sel["hospital"]).strip(" .,") if sel.get("hospital") else None), "urgency": sel.get("urgency"), "contact": sel.get("contact") or sel.get("phone"),
                        "raw": text[:600]}  # the scam check reads the original words too
-                if not req["group"] or not req["hospital"]:
-                    await ctx.send(sender, msg("I need at least the blood group and hospital:", card_block("form", REQUEST_FORM)))
+                if other_city(text) and not (req["hospital"] and Geo(None).find(req["hospital"])):
+                    await handle_request_review(ctx, sender, {**req, "hospital": req["hospital"] or text[:80], "group": req["group"] or "O+"})
+                elif not req["group"] or not req["hospital"]:
+                    ctx.storage.set(f"partial:{sender}", req)
+                    need = " and ".join(x for x, ok in (("the patient's blood group", req["group"]),
+                                                       ("the hospital name and area", req["hospital"])) if not ok)
+                    await ctx.send(sender, msg(f"Got it. To check this request I still need {need} "
+                                               "(e.g. 'Manipal Hospital, Old Airport Road').", card_block("form", REQUEST_FORM)))
                 else:
                     await handle_request_review(ctx, sender, req)
             elif action == "confirm_request":
@@ -737,18 +1010,27 @@ if HAVE_UAGENTS:
             elif action in ("donate", "decline"):
                 await donor_response(ctx, sender, sel.get("code"), action == "donate")
             elif action in ("status", "close", "my_requests"):
-                requests_db, donors = load(ctx, "requests", {}), load(ctx, "donors", {})
+                donors = load(ctx, "donors", {})
                 codes = [sel["code"].upper()] if sel.get("code") else load(ctx, f"mine:{sender}", [])[-3:]
                 if not codes:
                     await ctx.send(sender, msg("You have no requests yet.", card_block("carousel", welcome_card())))
                 for code in codes:
+                    requests_db = load(ctx, db_key(code), {})
                     req = requests_db.get(code)
                     if not req:
+                        if sel.get("code"):
+                            await ctx.send(sender, msg(f"I can't find request {code}. Check the code (like BB-1234), "
+                                                       "or tap **My requests**.", card_block("carousel", welcome_card())))
                         continue
                     if action == "close" and req["requester"] == sender and req["status"] == "open":
                         req["status"] = "closed"
                         requests_db[code] = req
-                        ctx.storage.set("requests", requests_db)
+                        ctx.storage.set(db_key(code), requests_db)
+                        if req.get("demo"):
+                            await ctx.send(sender, msg(f"✅ Demo {code} closed. In a real request it would vanish from every "
+                                                       "donor's list right away, so stale forwards stop. Say **exit demo** to use "
+                                                       "Blood Bridge for real.", card_block("detail", status_card(req, donors))))
+                            continue
                         await ctx.send(sender, msg(f"✅ Closed {code}. It disappears from every donor's list right away, and anyone "
                                                    f"who replies to the WhatsApp message is told it's no longer needed. "
                                                    "Wishing the patient a quick recovery 💛"))
