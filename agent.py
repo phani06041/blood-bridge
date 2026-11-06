@@ -299,16 +299,13 @@ def demo_donors(req: dict, n: int = 3) -> list[dict]:
 
 
 WHY_TEXT = (
-    "**Why Blood Bridge exists** 🩸\n\n"
-    "- In India, when a patient needs blood (surgery, an accident, dengue, cancer care, childbirth), hospitals often "
-    "ask the family to find **replacement donors** or locate stock themselves, sometimes within hours.\n"
-    "- Families post \"URGENT!! O-ve needed\" in WhatsApp groups. Those forwards are **never verified**, reach "
-    "**random people instead of compatible donors nearby**, and keep circulating **long after** the need is met.\n"
-    "- Scammers copy the format and ask donors for a **\"processing fee\" or UPI payment**. Real requests never do.\n"
-    "- India is short of roughly **1 million units** of blood a year (2022 study).\n\n"
-    "Blood Bridge checks the request first, points the family to the **nearest blood banks** (the fastest route), "
-    "shows it only to **compatible, eligible donors within 15 km**, and closes it when it's fulfilled.\n\n"
-    "Want to see it without alerting anyone? Tap **🧪 Try a safe demo**."
+    "**Why Blood Bridge exists** 🩸\n"
+    "- Hospitals often ask families to find **replacement donors** themselves, sometimes within hours\n"
+    "- So they post \"URGENT!!\" on **WhatsApp**: unverified, sent to random people, never closed\n"
+    "- Scammers copy them and ask donors for a **\"processing fee\"** or UPI payment\n"
+    "- India is short of ~**1 million units** of blood a year (2022 study)\n\n"
+    "Blood Bridge verifies the request, points to the **nearest blood banks**, and alerts only **compatible donors within 15 km**. "
+    "Try it safely: say **try a demo**."
 )
 
 
@@ -605,20 +602,25 @@ def status_card(req, donors):
 
 def card_text(kind: str, p: dict) -> str:
     """A short plain-text version of a card, for clients that show only text."""
-    lines = [f"**{p.get('title', '')}**"] if p.get("title") else []
     if kind == "carousel":
-        lines += [f"- {i['title']}: {i.get('subtitle', '')}" for i in p.get("items", [])]
-        lines.append("Tap an option, or just type what you need.")
-    elif kind == "form":
-        lines.append("Fields: " + ", ".join(f["label"] + ("" if f.get("required") or "optional" in f["label"].lower() else " (optional)")
-                                            for f in p.get("fields", [])) + ".")
-        lines.append("Fill in the form, or reply in one message" + (f", e.g. *{p['example']}*" if p.get("example") else " with these details") + ".")
-    else:
-        lines += [f"- {r['label']}: {r['value']}" if r["label"] != "•" else f"- {r['value']}" for r in p.get("summary_rows", [])]
-        if p.get("approve_cta"):
-            lines.append(f"Reply **yes** to {p['approve_cta']['label'].lower()}, or **edit** to change it.")
-        elif p.get("ctas"):
-            lines.append("Options: " + " · ".join(c["label"] for c in p["ctas"]))
+        return "**Menu:** " + " · ".join(i["title"] for i in p.get("items", []))
+    if kind == "form":
+        short = [re.split(r"\s*\(", f["label"])[0] for f in p.get("fields", []) if f.get("required") and f.get("kind") != "checkbox"]
+        return (f"**{p.get('title', 'Form')}**: fill in the form, or send " + ", ".join(short).lower() + " in one message"
+                + (f"\n_e.g. {p['example']}_" if p.get("example") else ""))
+    lines = [f"**{p['title']}**"] if p.get("title") else []
+    for r in p.get("summary_rows", []):
+        if r["label"] == "Mode" or r["value"] in ("—", ""):
+            continue
+        if r["label"] == "•":
+            if not r["value"].startswith("Hospital found"):  # skip the all-clear note; keep warnings
+                lines.append(f"- {r['value']}")
+        else:
+            lines.append(f"- **{r['label']}:** {r['value']}")
+    if p.get("approve_cta"):
+        lines.append(f"👉 Reply **yes** to {p['approve_cta']['label'].lower()}, or **edit**")
+    elif p.get("ctas"):
+        lines.append("👉 " + " · ".join(c["label"] for c in p["ctas"]))
     return "\n".join(lines)
 
 
@@ -700,12 +702,10 @@ if HAVE_UAGENTS:
     async def start_demo(ctx, sender):
         ctx.storage.set(f"sandbox:{sender}", True)
         intro = (
-            "🧪 **Demo mode is on.** Try Blood Bridge safely: nothing you do here reaches real donors, hospitals "
-            "or WhatsApp, and donor profiles aren't saved. The blood banks shown are real, so you can see the live data.\n\n"
-            f"I'll run a sample request now:\n> {DEMO_SAMPLE_TEXT}\n\n"
-            "After that, type your own request (any blood group and Bengaluru hospital), or test the scam filter with:\n"
-            "> Need 2 units B+ at Apollo Hospital Bannerghatta Road, pay ₹500 processing fee to UPI\n\n"
-            "Say **exit demo** anytime.")
+            "🧪 **Demo mode on**: nothing reaches real donors, hospitals or WhatsApp\n"
+            "- Running a sample O+ request at Manipal Hospital now\n"
+            "- Then try your own, or a scam one: _pay ₹500 processing fee to UPI_\n"
+            "- Say **exit demo** to leave")
         sample = rule_understand(DEMO_SAMPLE_TEXT)
         await handle_request_review(ctx, sender, {"group": sample["group"], "units": sample["units"] or 1,
                                                   "hospital": sample["hospital"], "urgency": "today",
@@ -743,7 +743,7 @@ if HAVE_UAGENTS:
                                        "I won't alert any donors. It " + " and ".join(n[2:].split(":")[0].strip() for n in notes if n.startswith("⚠️")) +
                                        ". Real blood requests never ask donors for money. If it's genuine, send it again without any payment details."))
             return
-        await ctx.send(sender, msg(intro, ("🧪 Demo · " if demo else "") + "🔍 I checked the request before alerting anyone:",
+        await ctx.send(sender, msg(intro, ("🧪 Demo · " if demo else "") + "🔍 Checked first, nothing sent yet:",
                                    card_block("review", review_card(req, level, notes, demo))))
 
     async def confirm_request(ctx, sender):
@@ -784,34 +784,27 @@ if HAVE_UAGENTS:
         ctx.storage.set(f"mine:{sender}", mine + [code])
         ctx.storage.set(f"draft:{sender}", None)
 
-        if demo:
-            lines = [f"🧪 **Demo request {code} is ready.** Nothing was sent to real donors, hospitals or WhatsApp; "
-                     "the donors below are samples. The blood banks are real."]
-        else:
-            lines = [f"✅ **Request {code} is live.** Here's what I did:"]
-        if banks:
-            lines.append("🏥 **Nearest blood banks: call these first, they're the fastest route:**")
-            lines += [f"- {b['name']} — {b['km']} km" + (f" · 📞 {b['phone']}" if b.get("phone") else "") for b in banks]
-        lines.append(f"📊 **Live stock** by blood bank: [e-RaktKosh]({ERAKTKOSH_URL})")
         exact = sum(1 for d in matches if d["exact_match"])
         if demo:
-            lines.append(f"🙋 **Donors**: in a real request, compatible donors within {DONOR_RADIUS_KM} km see it in ASI:One. "
-                         f"Here {len(matches)} sample donors matched ({exact} exact {req['group']}), and "
-                         f"**{matches[0]['name']}** has already tapped *I can donate*, so the status card shows the family's view.")
-            lines.append("📣 **Rally**: a real request also gets a one-tap WhatsApp message; it's skipped in the demo so nothing fake gets shared.")
-            lines.append("Next: tap **Mark fulfilled** to close it, type your own request, or say **exit demo**.")
+            lines = [f"🧪 **{code} is ready** (sample donors, real blood banks)"]
         else:
-            lines.append(f"🙋 **Donors**: **{len(matches)}** compatible donor(s) within {DONOR_RADIUS_KM} km "
-                         f"({exact} exact {req['group']} match) see this as soon as they open Blood Bridge"
-                         + (f"; **{emailed}** alerted by email right now" if emailed else "") if matches else
-                         "🙋 **Donors**: no registered donors match nearby yet; the rally message below reaches people who aren't registered.")
-            if (req.get("urgency") or "urgent") in ("within hours", "today", "urgent"):
-                lines.append("⏱️ **Needed within hours?** Don't wait for donors: call the blood banks above now, "
-                             "and share the rally message below.")
-            lines.append(f"📣 **Rally**: [share one clean request on WhatsApp]({whatsapp_link(rally_text(req, HANDLE))}) — "
-                         f"people can reply to {HANDLE} with \"I can donate {code}\".")
-            lines.append("Tap **Refresh** on the card below to see donors as they confirm.")
-        await ctx.send(sender, msg("\n\n".join(lines).replace(":**\n\n- ", ":**\n- ").replace("\n\n- ", "\n- "),
+            lines = [f"✅ **{code} is live**"]
+        if banks:
+            lines.append("🏥 **Call now**, nearest blood banks:\n" + "\n".join(
+                f"- {b['name']}: {b['km']} km" + (f" · 📞 {b['phone']}" if b.get("phone") else "") for b in banks[:3]))
+        info = [f"- 📊 Live stock: [e-RaktKosh]({ERAKTKOSH_URL})"]
+        if demo:
+            info.append(f"- 🙋 {len(matches)} sample donors matched; **{matches[0]['name']}** already said yes")
+            info.append("- 📣 WhatsApp share is skipped in the demo")
+        else:
+            info.append(f"- 🙋 **{len(matches)}** compatible donor(s) within {DONOR_RADIUS_KM} km will see it"
+                        + (f" ({emailed} emailed now)" if emailed else "") if matches else
+                        "- 🙋 No registered donors nearby yet; share on WhatsApp")
+            info.append(f"- 📣 [Share on WhatsApp]({whatsapp_link(rally_text(req, HANDLE))})")
+        lines.append("\n".join(info))
+        lines.append("👉 Tap **Mark fulfilled**, try your own request, or say **exit demo**" if demo
+                     else "👉 Tap **Refresh** to see who confirms")
+        await ctx.send(sender, msg("\n\n".join(lines),
                                    card_block("detail", status_card(req, donors))))
 
     async def donor_response(ctx, sender, code, accept: bool):
@@ -939,9 +932,8 @@ if HAVE_UAGENTS:
                 if await show_nearby(ctx, sender):
                     return
                 demo_note = "\n\n🧪 You're in **demo mode**; say **exit demo** to use it for real." if in_demo(ctx, sender) else ""
-                await ctx.send(sender, msg("Hi! I'm **Blood Bridge** 🩸 — I turn an urgent blood request into a verified, "
-                                           "live hunt across blood banks and nearby donors in Bengaluru. New here? Tap "
-                                           "**🧪 Try a safe demo**: nothing reaches real donors." + demo_note,
+                await ctx.send(sender, msg("Hi! I'm **Blood Bridge** 🩸 Verified blood requests, nearest blood banks and "
+                                           "nearby donors in Bengaluru.\nNew here? Say **try a demo** (no real donors alerted)." + demo_note,
                                            card_block("carousel", welcome_card())))
                 return
             if not action and ctx.storage.get(f"draft:{sender}") and re.match(YES_RE, text.lower()):

@@ -6,67 +6,61 @@
 
 **Blood Bridge turns an urgent blood request into a verified, live hunt across nearby blood banks and opt-in donors in Bengaluru, all inside one ASI:One chat.**
 
-In India, urgent blood requests travel as WhatsApp forwards: unverified, untargeted and never closed, and scammers exploit them with fake "processing fees". Blood Bridge verifies the request first, then routes it to the nearest blood banks and to compatible donors, and it tracks the request until it's fulfilled.
+In India, urgent blood requests travel as WhatsApp forwards: unverified, sent to random people, never closed, and copied by scammers who ask for "processing fees". Blood Bridge verifies the request first, sends the family to the nearest blood banks, shows it only to compatible donors nearby, and closes it when it's fulfilled.
 
-## 🧪 Try it safely (sandbox)
-Say **"try a demo"** or tap **🧪 Try a safe demo**. Demo mode runs the full flow (verification, real nearby blood banks, sample donors who say yes, closing the request) **without alerting any real donor, hospital or WhatsApp group**, and it doesn't save donor profiles. Demo requests are coded `DEMO-1234`. Say **exit demo** to leave.
+## Key features
+- **Verifies before alerting anyone:** checks the hospital is on the map, there's a contact to call, and the units are plausible
+- **Blocks scams:** requests asking donors for money, UPI, a "processing fee" or an OTP are stopped with a clear reason
+- **Nearest blood banks first:** real blood banks near the hospital with distance and phone number, plus live government stock on e-RaktKosh
+- **Smart donor matching:** only donors who are compatible (red-cell rules), within 15 km and eligible (90+ days since last donation)
+- **Live tracking and a safe demo:** donors tap *I can donate*, the family sees it live, *Mark fulfilled* closes it; **try a demo** runs the whole flow without alerting real donors
 
-Try these in demo mode:
-- `Need 1 unit O+ at Manipal Hospital Old Airport Road today, contact Ravi`
-- `Need 2 units B+ at Apollo Hospital Bannerghatta Road, pay ₹500 processing fee to UPI` (watch the scam filter block it)
+## Usage
+Just say **hi** to see the menu, or type a message:
 
-## Why this matters
-In India, when a patient needs blood, hospitals often ask the family to find replacement donors or locate stock themselves, sometimes within hours. Families turn to WhatsApp forwards that are never verified, reach random people instead of compatible donors nearby, and keep circulating after the need is met. Scammers copy the format and ask donors for a "processing fee". Say **"why does this matter?"** to the agent for the full context.
+| You want to… | Say |
+|---|---|
+| Try it safely | `try a demo` |
+| Request blood | `Need 1 unit O+ at Manipal Hospital Old Airport Road today, contact Ravi 98765 43210` |
+| Confirm a checked request | `yes` (or `edit` to change it) |
+| See your requests | `my requests` · `status BB-1234` · `mark BB-1234 fulfilled` |
+| Become a donor | `register me as a donor`, or send `Name: Arjun; Blood group: O+; Area: Koramangala; Phone: 98765 43210` |
+| Help as a donor | `requests near me` · `I can donate BB-1234` |
+| Leave | `exit demo` · `delete my donor profile` |
+| Learn more | `why does this matter?` |
 
-## What you can say
+Works with ASI:One Interactive Cards (menu, request form, verification review, donor alert, live status, donor sign-up) and in plain text: every card also comes with a short text version.
 
-**If you need blood**
-- `Need 1 unit O+ at Manipal Hospital Old Airport Road today, contact Ravi 98xxxxxx10`
-- `Urgent: 2 units B negative at St John's Hospital Koramangala`
-- `Show my requests` · `Mark BB-1234 fulfilled`
+## Use cases
+- **A family in an emergency:** a parent needs 2 units of O– for surgery today; Blood Bridge checks the request, lists the 3 nearest blood banks to call now, and shows it to compatible donors nearby
+- **A regular donor:** registers once, then opens Blood Bridge to see requests within 15 km that match their blood group, and taps *I can donate*
+- **Stopping a scam:** a forwarded "pay ₹500 processing fee to UPI" request is flagged before any donor sees it
+- **Ending stale forwards:** the family marks the request fulfilled, so it disappears for every donor and stops circulating
+- **Trying it out:** a judge, NGO or hospital team runs the demo to see the full flow with sample donors and real blood-bank data
 
-**If you want to donate**
-- `Register me as a donor`
-- `Requests near me`
-- `I can donate BB-1234`
-- `Delete my donor profile`
+## Limitations
+- **Bengaluru only for now.** Requests from other cities get a clear note and pointers to e-RaktKosh and the hospital's blood bank
+- **Donors see requests when they open Blood Bridge.** ASI:One doesn't let agents message other users unprompted, so alerts are "pull"; optional email alerts need the operator's Brevo setup
+- **Not a medical service.** Compatibility is for red cells / whole blood only (not platelets or plasma); the hospital blood bank always cross-matches and screens donors
+- **Blood-bank stock isn't guaranteed.** Always call the blood bank to confirm; listings come from TomTom places data
+- **Small donor network today.** It grows as donors register; the WhatsApp share reaches people who haven't
 
-Or just say **hi** and choose from the menu: *I need blood* · *Become a donor* · *Requests near me* · *My requests* · *Try a safe demo* · *Why this matters*.
-
-## What Blood Bridge does
-
-1. **Understands the request.** ASI-1 picks out the blood group, units, hospital, urgency and contact from plain English.
-2. **Verifies it before anyone is alerted.** It checks that the hospital is on the map, that there's a contact to call, and that the units are plausible. Requests that ask donors for money, UPI, a "processing fee" or an OTP are **blocked**.
-3. **Finds the nearest blood banks first.** It lists real blood banks near the hospital, with distance and phone number, plus a link to live government stock on **e-RaktKosh**. For anything needed within hours, it tells the family to call these right away rather than wait for donors.
-4. **Matches the right donors.** Only donors who are **compatible** (red-cell rules), **within 15 km** and **eligible** (90+ days since their last donation) see the request when they open Blood Bridge or tap *Requests near me*. Donors who add an email can also be alerted by email (when email alerts are configured).
-5. **Writes one clean WhatsApp rally message** with a request code (e.g. `BB-1234`), so people outside the network can respond too.
-6. **Tracks it live.** Donors tap *I can donate*, and the family sees each confirmed donor on the status card. *Mark fulfilled* closes the request so it stops circulating.
-
-## Interactive cards
-Welcome menu · Request form · Verification review (*Confirm / Edit*) · Donor alert (*I can donate / Not now*) · Live status (*Mark fulfilled / Refresh*) · Donor registration form · Donor profile summary
-
-Every card also comes with a short plain-text version, so Blood Bridge works in text-only chats too: reply **yes** to confirm, **edit** to change, or type the details in one message (e.g. `Name: Arjun; Blood group: O+; Area: Koramangala; Phone: 98765 43210`). It remembers what it just asked for, so missing details can come in the next message.
-
-## Checked details
-Donor sign-ups are checked before they're saved: a valid 10-digit Indian mobile number, an area found on the map, a real first name, the eligibility tick, and a last-donation date that isn't in the future. The donor then sees a profile summary (phone masked) to confirm their details.
-
-## Coverage
-Bengaluru for now. If a request is for another city (Mumbai, Delhi, Chennai…), Blood Bridge says so clearly and points the family to e-RaktKosh live stock, the hospital's own blood bank and local helplines, instead of pretending to match donors.
-
-## Privacy
-- Donors share only their first name, blood group, area, last donation date and phone number.
-- A donor's phone number is shared with the family **only after the donor taps "I can donate"**.
-- `Delete my donor profile` removes everything.
-- Blood Bridge never asks for or handles money.
-
-## Medical note
-Compatibility is for red cells / whole blood, and the hospital blood bank always cross-matches. Eligibility is a simple pre-check (18–65 years, at least 45 kg, 90 days between donations); the blood bank's screening decides. Always call the blood bank to confirm stock.
-
-## Built with
-Fetch.ai Agentverse (hosted uAgent) · Agent Chat Protocol · **ASI-1 as the only LLM** · ASI:One Interactive Cards · Agent storage · TomTom Search & Routing · e-RaktKosh
-
-**Try it live:** https://asi1.ai/ai/agent1qwmsdzdktw8xrl8tz3zhahwr54nw32u9efwq9u57pw0629pa8ldeywy9def (or search `@blood-bridge-agent` on ASI:One)
-**Code:** https://github.com/phani06041/blood-bridge
-**Demo:** https://youtu.be/FusOGbrEeo4
-
-*Built for the Fetch.ai "Get your agent hired" challenge at Stranger Builds 2026.*
+## Metadata
+| | |
+|---|---|
+| **Name** | Blood Bridge |
+| **Handle** | `@blood-bridge-agent` |
+| **Address** | `agent1qwmsdzdktw8xrl8tz3zhahwr54nw32u9efwq9u57pw0629pa8ldeywy9def` |
+| **Category** | Health · Emergency · Community |
+| **Coverage** | Bengaluru, India |
+| **Languages** | English |
+| **Protocol** | Agent Chat Protocol v0.3.0 |
+| **LLM** | ASI-1 (the only LLM) |
+| **Built with** | Fetch.ai Agentverse (hosted uAgent) · ASI:One Interactive Cards · Agent storage · TomTom Search & Routing · e-RaktKosh |
+| **Pricing** | Free |
+| **Privacy** | Donors share first name, blood group, area, last donation date and phone; the phone is shared only after they tap *I can donate*; `delete my donor profile` removes everything; never asks for or handles money |
+| **Code** | https://github.com/phani06041/blood-bridge |
+| **Demo video** | https://youtu.be/FusOGbrEeo4 |
+| **Author** | Phanindra Maddipatla |
+| **Built for** | Fetch.ai "Get your agent hired" challenge, Stranger Builds 2026 (Best of the Day, Bengaluru) |
+| **Version** | 1.3 (Nov 2026): sandbox demo, text-only support, concise replies |
