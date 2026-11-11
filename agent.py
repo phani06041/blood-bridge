@@ -95,6 +95,32 @@ def now_ist() -> datetime:
     return datetime.now(IST)
 
 
+# ---- flood guard: stops bots / reply loops from draining the hosting quota ----
+RATE_PER_MIN = 12       # messages one sender may send in 60 s
+RATE_PER_HOUR = 120     # ... and in 60 min
+BLOCK_SECONDS = [600, 3600, 21600]   # 10 min, then 1 h, then 6 h for repeat floods
+
+
+def blocked_sender(sender: str, blocklist: str | None) -> bool:
+    """True if the sender matches a comma-separated list of address prefixes (BLOCKED_SENDERS secret)."""
+    return any(sender.startswith(p.strip()) for p in (blocklist or "").split(",") if p.strip())
+
+
+def flood_check(state: dict | None, now_ts: float) -> tuple[str, dict]:
+    """Per-sender rate limit. Returns ("ok" | "warn" | "drop", new_state).
+    "warn" = just went over the limit (tell them once); "drop" = ignore silently."""
+    st = dict(state or {})
+    if now_ts < st.get("until", 0):
+        return "drop", st
+    hits = [t for t in st.get("hits", []) if now_ts - t < 3600] + [now_ts]
+    st["hits"] = hits[-(RATE_PER_HOUR + 1):]
+    if sum(1 for t in hits if now_ts - t < 60) > RATE_PER_MIN or len(hits) > RATE_PER_HOUR:
+        strikes = st.get("strikes", 0)
+        st.update(until=now_ts + BLOCK_SECONDS[min(strikes, len(BLOCK_SECONDS) - 1)], strikes=strikes + 1, hits=[])
+        return "warn", st
+    return "ok", st
+
+
 def haversine_km(a_lat, a_lon, b_lat, b_lon) -> float:
     r = 6371.0
     p1, p2 = math.radians(a_lat), math.radians(b_lat)
@@ -921,6 +947,18 @@ if HAVE_UAGENTS:
 
     @chat.on_message(ChatMessage)
     async def on_chat(ctx: Context, sender: str, m: ChatMessage):
+        if blocked_sender(sender, os.environ.get("BLOCKED_SENDERS")):
+            return
+        verdict, st = flood_check(ctx.storage.get(f"rl:{sender}"), datetime.now(timezone.utc).timestamp())
+        if verdict != "drop":
+            ctx.storage.set(f"rl:{sender}", st)
+        if verdict == "drop":
+            return
+        if verdict == "warn":
+            ctx.logger.warning(f"FLOOD from={sender} paused until {st['until']:.0f} (strike {st['strikes']})")
+            await ctx.send(sender, msg("I'm getting a lot of messages from you very quickly, so I'm pausing for a few "
+                                       "minutes. For urgent blood, call the nearest blood bank or check e-RaktKosh."))
+            return
         await ctx.send(sender, ChatAcknowledgement(timestamp=datetime.utcnow(), acknowledged_msg_id=m.msg_id))
         text = re.sub(r"@[\w-]+", "", m.text()).strip()
         metas = [c.metadata for c in m.content if isinstance(c, MetadataContent)]

@@ -78,13 +78,14 @@ Fetch.ai Agentverse (hosted uAgent) · Agent Chat Protocol · **ASI-1 as the onl
 
 **Deploy on Agentverse:** create a hosted agent, paste `agent.py` into the Build tab, and add the secret `TOMTOM_API_KEY` (free at developer.tomtom.com). Optional secrets: `AGENT_HANDLE` (e.g. `@blood-bridge-agent`), `BREVO_API_KEY` + `SENDER_EMAIL` for donor email alerts, `DEMO_ALLOW_SELF=1` so one account can test both roles, and `CARD_TEXT=0` to hide the plain-text copy of each card. ASI-1 is provided by Agentverse and is the only LLM.
 
-**Tests:** `pip install requests && python -m unittest discover -s tests -v` (23 tests: matching, eligibility, scam rules, parsing, sandbox, phone checks, city coverage).
+**Tests:** `pip install requests && python -m unittest discover -s tests -v` (26 tests: matching, eligibility, scam rules, parsing, sandbox, phone checks, city coverage, flood guard).
 
 **Agentverse Testing:** the 11 questions in `blood_bridge_test_questions.csv` pass 11 of 11 (100%) on Agentverse's automated tester.
 
 **Agent:** Blood Bridge · `@blood-bridge-agent` · `agent1qwmsdzdktw8xrl8tz3zhahwr54nw32u9efwq9u57pw0629pa8ldeywy9def`
 
 ## Changelog
+- **11 Nov 2026:** added a flood guard after a burst of ~39K automated messages used up the hosting quota: each sender is limited to 12 messages a minute and 120 an hour, repeat floods are paused for longer, and the optional `BLOCKED_SENDERS` secret blocks address prefixes outright.
 - **4 Nov 2026, Agentverse testing:** the automated tester reads only text, so every card now has a plain-text version; "yes"/"edit" work as text replies; follow-up messages complete a request or sign-up; scam requests are blocked straight away with a reason; requests outside Bengaluru get a clear coverage note with where to get help; "I need blood" opens the request form; donor sign-up shows a profile summary and, from *Requests near me*, the nearby requests. Test score went from 27% to 100%.
 - **Nov 2026, after hackathon feedback:** added a sandbox demo mode so people can try it without alerting real donors; added "Why this matters" context; urgent requests now put blood banks first and say not to wait for donors; donor sign-ups are checked (valid Indian mobile, real name, no future dates).
 - **31 Oct 2026:** testing with two ASI:One accounts showed pushed donor alerts landed in the requester's chat, so donors now see matching requests when they open Blood Bridge (pull model), with optional email alerts.

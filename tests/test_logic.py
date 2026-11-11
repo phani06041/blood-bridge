@@ -127,6 +127,46 @@ class GeoTests(unittest.TestCase):
         self.assertEqual([b["name"] for b in banks], ["Rotary Blood Bank"])
 
 
+class FloodGuard(unittest.TestCase):
+    def test_normal_chat_is_allowed(self):
+        st, now = None, 1000.0
+        for i in range(10):
+            v, st = bb.flood_check(st, now + i * 8)
+            self.assertEqual(v, "ok")
+
+    def test_burst_warns_once_then_drops(self):
+        st, now, out = None, 1000.0, []
+        for i in range(20):
+            v, st = bb.flood_check(st, now + i)
+            out.append(v)
+        self.assertEqual(out.count("warn"), 1)
+        self.assertEqual(out[bb.RATE_PER_MIN], "warn")
+        self.assertTrue(all(v == "drop" for v in out[bb.RATE_PER_MIN + 1:]))
+
+    def test_unblocks_after_pause_and_escalates(self):
+        st = None
+        for i in range(bb.RATE_PER_MIN + 1):
+            v, st = bb.flood_check(st, 1000.0 + i)
+        self.assertEqual(bb.flood_check(st, st["until"] - 1)[0], "drop")
+        v, st2 = bb.flood_check(st, st["until"] + 1)
+        self.assertEqual(v, "ok")
+        for i in range(bb.RATE_PER_MIN):
+            v, st2 = bb.flood_check(st2, st["until"] + 2 + i)
+        self.assertEqual(v, "warn")
+        self.assertGreaterEqual(st2["until"] - (st["until"] + 2 + bb.RATE_PER_MIN), bb.BLOCK_SECONDS[1] - 1)
+
+    def test_hourly_cap_catches_slow_loops(self):
+        st, v = None, "ok"
+        for i in range(bb.RATE_PER_HOUR + 1):
+            v, st = bb.flood_check(st, 1000.0 + i * 20)
+        self.assertEqual(v, "warn")
+
+    def test_blocklist(self):
+        self.assertTrue(bb.blocked_sender("agent1qw60kzabc", "agent1qw60kz, agent1qzzz"))
+        self.assertFalse(bb.blocked_sender("agent1qother", "agent1qw60kz"))
+        self.assertFalse(bb.blocked_sender("agent1qother", None))
+
+
 if __name__ == "__main__":
     unittest.main()
 
